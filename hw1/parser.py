@@ -7,12 +7,12 @@
 #
 # <expn> ::= <expn> + <expn> | <expn> + <expn> | x | 5 | ( <expn> )
 #
-# using the disambiguated grammar
+# using the (new (ex2)) disambiguated grammar
 #
-# <expn> ::= <addm>
-# <addn> ::= <addn> + <mult> | <mult>
-# <mult> ::= <mult> * <atom> | <atom>
-# <atom> ::= x | 5 | ( <expn> )
+#<expn> ::= <addn> = <addn> | <addn> < <addn>
+#<addn> ::= <addn> + <mult> | <addn> - <mult> | <mult>
+#<mult> ::= <mult> * <atom> | <mult> div <atom> | <mult> mod <atom> | <atom>
+#<atom> ::= true | false | x | 5 | ( <expn> )
 #
 # ------------------------------------------------------------
 #
@@ -24,43 +24,84 @@
 # What isn't? What other files were included in this submission and
 # what are they?
 #
+# For exercise 1, my first attempt involved simply extending the logic in the
+# parseX() functions to include the new possible tokens. Additionally, I changed
+# the list e to inlude "binOp".
+#
+#
 # ------------------------------------------------------------
 #
 # WRITTEN EXERCISE ANSWERS
 #
-# Comments answering the written exercise
+# Exercise 2: I chose to represent boolean literals with the AST node
+#   ["Bool", true/false] for simplicity. Nothing special here. I considered
+#   the idea of having a catch-all ["Literal",...] node but decided against it
+#   for now, though it may come in handy later when we start evaluating.
 #
 # ------------------------------------------------------------
 #
 
 import sys
 
+# ex2 notes:
+# we have to change parseExpn(..) so that it works similarly to the other
+# parse functions; this will likely include a while loop.
 def parseExpn(tokens):
     #
-    # <expn> ::= <addm>
+    # <expn> ::= <addn> = <addn> | <addn> < <addn>
     #
-    return parseAddn(tokens)
-
-def parseAddn(tokens):
-    #
-    # <addn> ::= <addn> + <mult> | <mult>
-    #
-    e = parseMult(tokens)
-    while tokens.next() == '+':
-        tokens.eat('+')
-        ep = parseMult(tokens)
-        e = ["Plus",e,ep]
+    e = parseAddn(tokens)
+    while tokens.next() == '=' or tokens.next() == '<':
+        if tokens.next() == '=':
+            tokens.eat('=')
+            ep = parseAddn(tokens)
+            e = ["binOp", "Equals", e,ep]
+        else:
+            tokens.eat('<')
+            ep = parseAddn(tokens)
+            e = ["binOp", "LessThan",e,ep]
     return e
 
+# EX1 notes:
+# We now have >1 possibilities for tokens.next(), namely + and -.
+# How to proceed? We want to take different actions for each one, but they have the
+# same precedence level, so maybe add an OR in the while condition?
+def parseAddn(tokens):
+    #
+    # <addn> ::= <addn> + <mult> | <addn> - <mult> | <mult>
+    #
+    e = parseMult(tokens)
+    while tokens.next() == '+' or tokens.next() == '-':
+        if tokens.next() == '+':
+            tokens.eat('+')
+            ep = parseMult(tokens)
+            e = ["binOp","Plus",e,ep]
+        else:
+            tokens.eat('-')
+            ep = parseMult(tokens)
+            e = ["binOp","Minus",e,ep]
+    return e
+
+# EX1 notes:
+# Similarly, we now have >1 possibilities for tokens.next(), namely *, div, and mod.
 def parseMult(tokens):
     #
-    # <mult> ::= <mult> * <atom> | <atom>
+    # <mult> ::= <mult> * <atom> | <mult> div <atom> | <mult> mod <atom> | <atom>
     #
     e = parseAtom(tokens)
-    while tokens.next() == '*':
-        tokens.eat('*')
-        ep = parseAtom(tokens)
-        e = ["Times",e,ep]
+    while tokens.next() == '*' or tokens.next() == 'div' or tokens.next() == 'mod':
+        if tokens.next() == '*':
+            tokens.eat('*')
+            ep = parseAtom(tokens)
+            e = ["binOp","Times",e,ep]
+        elif tokens.next() == 'div':
+            tokens.eat('div')
+            ep = parseAtom(tokens)
+            e = ["binOp","Div",e,ep]
+        else:
+            tokens.eat('mod')
+            ep = parseAtom(tokens)
+            e = ["binOp","Mod",e,ep]
     return e
 
 def parseAtom(tokens):
@@ -88,6 +129,13 @@ def parseAtom(tokens):
         return ["Var",x]
 
     #
+    # <atom> ::= true | false
+    #
+    elif tokens.nextIsBool():
+        x = tokens.eatBool()
+        return ["Bool",x]
+
+
     else:
         where = tokens.report()
         err1 = "Unexpected token at "+where+". "
@@ -158,7 +206,7 @@ RESERVED = ['if','then','else',
             'let','ref','in',
             'begin','end',
             'not','mod',
-            'true','false'
+            'true','false',
             'print_string','read_line','string_of_int','int_of_string',
             'eof']
 
@@ -304,6 +352,16 @@ class TokenStream:
             err3 = "Expected a string literal. "
             raise SyntaxError(err1 + err2 + err3)
 
+    def eatBool(self):
+        if self.nextIsBool():
+            return self.advance()
+        else:
+            where = self.report()
+            err1 = "Unexpected token at "+where+". "
+            err2 = "Saw: '"+self.next()+"'. "
+            err3 = "Expected a bool literal. "
+            raise SyntaxError(err1 + err2 + err3)
+
     def nextIsInt(self):
         """
         Checks if next token is an integer literal token.
@@ -335,6 +393,13 @@ class TokenStream:
         """
         tk = self.next()
         return tk[0] == '"' and tk[-1] == '"'
+
+    def nextIsBool(self):
+        # Checks if next token is bool literal
+        tk = self.next()
+        isbool = (tk == 'true') or (tk == 'false')
+        return isbool
+
 
     #
     # TOKENIZER helper functions
