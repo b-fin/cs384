@@ -9,10 +9,14 @@
 #
 # using the (new (ex2)) disambiguated grammar
 #
-#<expn> ::= <addn> = <addn> | <addn> < <addn>
-#<addn> ::= <addn> + <mult> | <addn> - <mult> | <mult>
-#<mult> ::= <mult> * <atom> | <mult> div <atom> | <mult> mod <atom> | <atom>
-#<atom> ::= true | false | x | 5 | ( <expn> )
+#<expn> ::= <disj>
+#<disj> ::= <disj> orelse <conj> | <conj>
+#<disj> ::= <conj> andalso <cmpn> | <cmpn>
+#<cmpn> ::= <addn> = <addn> | <addn> < <addn> | <addn>
+#<addn> ::= <addn> + <mult> | <mult>
+#<mult> ::= <mult> * <nega> | <nega>
+#<nega> ::= not <atom> | <atom>
+#<atom> ::= x | 5 | true | false | ( <expn> )
 #
 # ------------------------------------------------------------
 #
@@ -26,7 +30,8 @@
 #
 # For exercise 1, my first attempt involved simply extending the logic in the
 # parseX() functions to include the new possible tokens. Additionally, I changed
-# the list e to inlude "binOp".
+# the list e to include "binOp" as an AST node. Many of the additions for this
+# and exercise 2 were largely mechanical.
 #
 #
 # ------------------------------------------------------------
@@ -62,6 +67,12 @@ def parseExpn(tokens):
             e = ["binOp", "LessThan",e,ep]
     return e
 
+def parseDisj(tokens):
+    pass
+def parseConj(tokens):
+    pass
+def parseCmpn(tokens):
+    pass 
 # EX1 notes:
 # We now have >1 possibilities for tokens.next(), namely + and -.
 # How to proceed? We want to take different actions for each one, but they have the
@@ -150,11 +161,39 @@ def parseAtom(tokens):
 # The supporting code and driver follows below here
 #
 
+# v2: introduction of to_print parameter.
+# also: control should be such:
+# if len(ast) >2: *recursive case*
+# elif  len(ast) == 2: *base case 1*
+# else: *base case 2*
+def prettyPrint(ast,depth=0,to_print=''):
+    if isinstance(ast,list) and len(ast)>2:
+        # we know ast[0] is 'binOp', [1] is one of Plus, Times, Minus, etc.
+        # [2] is left subtree, [3] is right subtree
+        print('\t'*depth, end='')
+        to_print += ast[1]
+        to_print += '-' + '+' + '-'
+        print("ast[3] is " + str(ast[3]))
+        prettyPrint(ast[3],depth+1,to_print)
+        print(to_print)
+        print(''*len(ast[3][0]) + '|')
+
+    elif isinstance(ast,list) and len(ast)==2:
+        # we know ast[0] is one of Var, Num, and Bool,
+        # [1] is a literal
+        return ast[0]+'-'+'+'+'-'+str(ast[1]) #?
+    elif not isinstance(ast,list):
+        # ast is a literal
+        return ast #?
+
+
 def parseAndReport(tks):
     ast = parseExpn(tks)
     tks.checkEOF()  # Check if everything was consumed.
     print()
     print(ast)
+    print()
+    prettyPrint(ast)
     print()
 
 def loadAll(files):
