@@ -9,12 +9,15 @@
 #
 # using the (new (ex2)) disambiguated grammar
 #
+#<expn> ::= let val <name> = <expn> in <expn> end
+#<expn> ::= if <expn> then <expn> else <expn>
 #<expn> ::= <disj>
 #<disj> ::= <disj> orelse <conj> | <conj>
-#<disj> ::= <conj> andalso <cmpn> | <cmpn>
+#<conj> ::= <conj> andalso <cmpn> | <cmpn>
 #<cmpn> ::= <addn> = <addn> | <addn> < <addn> | <addn>
 #<addn> ::= <addn> + <mult> | <mult>
-#<mult> ::= <mult> * <nega> | <nega>
+# <mult> ::=  <mult> * <powr> | <mult> div <powr> | <mult> mod <powr> | <powr>
+#<powr> ::= <nega> ** <powr> | <nega>
 #<nega> ::= not <atom> | <atom>
 #<atom> ::= x | 5 | true | false | ( <expn> )
 #
@@ -31,9 +34,13 @@
 # For exercise 1, my first attempt involved simply extending the logic in the
 # parseX() functions to include the new possible tokens. Additionally, I changed
 # the list e to include "binOp" as an AST node. Many of the additions for this
-# and exercise 2 were largely mechanical.
+# and exercise 2 were largely mechanical. I made the labels generally 3 or 4 chars
+# long just for some consistency. Other than that, I think the code is
+# straightforward. Nothing fancy here.
 #
-#
+# Now at the end of the assignment, everything parses at it should. Only thing
+# I need to touch up on is the prettyPrint function to see if I can make it
+# actually pretty.
 # ------------------------------------------------------------
 #
 # WRITTEN EXERCISE ANSWERS
@@ -42,41 +49,113 @@
 #   ["Bool", true/false] for simplicity. Nothing special here. I considered
 #   the idea of having a catch-all ["Literal",...] node but decided against it
 #   for now, though it may come in handy later when we start evaluating.
+#   UPDATE: For the updated grammar involving logical operators (AND,OR,NOT), I
+#   chose to represent those in the AST with ["And",..,..]. I decided to remove
+#   the "binOp" field from earlier just to simplify the AST a little.
 #
+# Exercise 4: An example of why the grammar is ambiguous:
+#   Say the parser is given the string "if true then if 5 then .. else 6". The
+#   ambiguity is that the parser doesn't know if the else belongs to the 'outer'
+#   if construct or the 'inner'. Specifically, it can be validly (according to
+#   grammer) parsed as either "if (true then (if 5 then .. ) else 6)" or
+#   "if (true then (if 5 then .. else 6))". To disambiguate the grammer, you
+#   would need to add extra derivation rules to account for whether an IF stmt
+#   is "matched" or "unmatched", ie if the IF stmt has an ELSE attached or not.
+#
+# Exercise 5:
+#   a) The precedence of ** in Python is higher than both * and +. I evaluated
+#       3 + 2 * 10 ** 4, noted the value 20003, and proceeded to evaluate the
+#       same expression with different parenthetical configurations, e.g.
+#       (3+2)*10**4, 3+(2*10)**4. The expression that evaluated to the same as the
+#   original expression was 3+2*(10**4).
+#   b) Using a similar method as above, I evaluated 2**3**4 and noted the value
+#       2417851639229258349412352. The expression (2**3)**4 produced a different
+#       value while 2**(3**4) produced the original value, which implies that
+#       Python has right-associativity with exponentiation.
 # ------------------------------------------------------------
 #
 
 import sys
+import unittest
 
-# ex2 notes:
-# we have to change parseExpn(..) so that it works similarly to the other
-# parse functions; this will likely include a while loop.
 def parseExpn(tokens):
     #
-    # <expn> ::= <addn> = <addn> | <addn> < <addn>
+    # #<expn> ::= let val <name> = <expn> in <expn> end
+    # <expn> ::= if <expn> then <expn> else <expn>
+    # <expn> ::= <disj>
+    #
+    disj = True
+    while tokens.next() == 'let':
+        # my assumption is that if tokens.eat(..) will raise exception if
+        # those arguments aren't present. is that the case? YES
+        disj = False
+
+        tokens.eat('let')
+        tokens.eat('val')
+        e1 = parseAtom(tokens)
+        tokens.eat('=')
+        e2 = parseExpn(tokens)
+        tokens.eat('in')
+        e3 = parseExpn(tokens)
+        tokens.eat('end')
+
+        e = ['Let',e1,e2,e3]
+    while tokens.next() == 'if':
+        disj = False
+
+        e3 = []
+        tokens.eat('if')
+        e1 = parseExpn(tokens)
+        tokens.eat('then')
+        e2 = parseExpn(tokens)
+        if tokens.next() == 'else':
+            tokens.eat('else')
+            e3 = parseExpn(tokens)
+            e = ["If",e1,e2,e3]
+        else:
+            e = ["If",e1,e2,None]
+    if disj:
+        e = parseDisj(tokens)
+    return e
+
+def parseDisj(tokens):
+    #
+    # <disj> ::= <disj> orelse <conj> | <conj>
+    #
+    e = parseConj(tokens)
+    while tokens.next() == 'orelse':
+        tokens.eat('orelse')
+        ep = parseConj(tokens)
+        e = ['OrEl',e,ep]
+    return e
+
+def parseConj(tokens):
+    #
+    # <conj> ::= <conj> andalso <cmpn> | <cmpn>
+    #
+    e = parseCmpn(tokens)
+    while tokens.next() == 'andalso':
+        tokens.eat('andalso')
+        ep = parseCmpn(tokens)
+        e = ['AndA',e,ep]
+    return e
+
+def parseCmpn(tokens):
+    #
+    # <cmpn> ::= <addn> = <addn> | <addn> < <addn> | <addn>
     #
     e = parseAddn(tokens)
     while tokens.next() == '=' or tokens.next() == '<':
         if tokens.next() == '=':
             tokens.eat('=')
             ep = parseAddn(tokens)
-            e = ["binOp", "Equals", e,ep]
-        else:
+            e = ['Eqls',e,ep]
+        elif tokens.next() == '<':
             tokens.eat('<')
             ep = parseAddn(tokens)
-            e = ["binOp", "LessThan",e,ep]
+            e = ['LThn',e,ep]
     return e
 
-def parseDisj(tokens):
-    pass
-def parseConj(tokens):
-    pass
-def parseCmpn(tokens):
-    pass 
-# EX1 notes:
-# We now have >1 possibilities for tokens.next(), namely + and -.
-# How to proceed? We want to take different actions for each one, but they have the
-# same precedence level, so maybe add an OR in the while condition?
 def parseAddn(tokens):
     #
     # <addn> ::= <addn> + <mult> | <addn> - <mult> | <mult>
@@ -86,33 +165,56 @@ def parseAddn(tokens):
         if tokens.next() == '+':
             tokens.eat('+')
             ep = parseMult(tokens)
-            e = ["binOp","Plus",e,ep]
+            e = ["Plus",e,ep]
         else:
             tokens.eat('-')
             ep = parseMult(tokens)
-            e = ["binOp","Minus",e,ep]
+            e = ["Mins",e,ep]
     return e
 
-# EX1 notes:
-# Similarly, we now have >1 possibilities for tokens.next(), namely *, div, and mod.
 def parseMult(tokens):
     #
-    # <mult> ::= <mult> * <atom> | <mult> div <atom> | <mult> mod <atom> | <atom>
+    # <mult> ::= <mult> * <powr> | <mult> div <powr> | <mult> mod <powr> | <powr>
     #
-    e = parseAtom(tokens)
+
+    e = parsePowr(tokens)
     while tokens.next() == '*' or tokens.next() == 'div' or tokens.next() == 'mod':
         if tokens.next() == '*':
             tokens.eat('*')
-            ep = parseAtom(tokens)
-            e = ["binOp","Times",e,ep]
+            ep = parsePowr(tokens)
+            e = ["Tims",e,ep]
         elif tokens.next() == 'div':
             tokens.eat('div')
-            ep = parseAtom(tokens)
-            e = ["binOp","Div",e,ep]
+            ep = parsePowr(tokens)
+            e = ["Div",e,ep]
         else:
             tokens.eat('mod')
+            ep = parsePowr(tokens)
+            e = ["Mod",e,ep]
+    return e
+
+def parsePowr(tokens):
+    #
+    # <powr> ::= <nega> ** <powr> | <nega>
+    #
+    e = parseNega(tokens)
+    while tokens.next() == '**':
+        tokens.eat('**')
+        ep = parsePowr(tokens)
+        e = ["Powr",e,ep]
+    return e
+
+def parseNega(tokens):
+    #
+    #  <nega> ::= not <atom> | <atom>
+    #
+    if tokens.next() == 'not':
+        while tokens.next() == 'not':
+            tokens.eat('not')
             ep = parseAtom(tokens)
-            e = ["binOp","Mod",e,ep]
+            e = ['Not',ep]
+    else:
+        e = parseAtom(tokens)
     return e
 
 def parseAtom(tokens):
@@ -161,31 +263,52 @@ def parseAtom(tokens):
 # The supporting code and driver follows below here
 #
 
-# v2: introduction of to_print parameter.
-# also: control should be such:
-# if len(ast) >2: *recursive case*
-# elif  len(ast) == 2: *base case 1*
-# else: *base case 2*
-def prettyPrint(ast,depth=0,to_print=''):
-    if isinstance(ast,list) and len(ast)>2:
-        # we know ast[0] is 'binOp', [1] is one of Plus, Times, Minus, etc.
-        # [2] is left subtree, [3] is right subtree
-        print('\t'*depth, end='')
-        to_print += ast[1]
-        to_print += '-' + '+' + '-'
-        print("ast[3] is " + str(ast[3]))
-        prettyPrint(ast[3],depth+1,to_print)
-        print(to_print)
-        print(''*len(ast[3][0]) + '|')
+# Not the cleanest or most elegant. Works decently well for most derivations
+# I tried. The numbers 5 and 6 in the two print statements are approximations
+# for spacing that made the output look decent.
+"""
+def prettyPrint(ast,depth=0):
+    # recursive case
+    if isinstance(ast,list) and len(ast)>=2:
+        # If the length of the list is >=2, then what?
+        # we know [0] is the 'label' of the operation (plus, times, etc)
+        # [1] is left subtree,
+        # [2] is right subtree.
+        # if length is == 2, then [0] is label, [1] is only child
 
-    elif isinstance(ast,list) and len(ast)==2:
-        # we know ast[0] is one of Var, Num, and Bool,
-        # [1] is a literal
-        return ast[0]+'-'+'+'+'-'+str(ast[1]) #?
+        print(ast[0]+'-'+'+'+'-',end='')
+        if len(ast)>2:
+            depth = depth+1
+            # recursive call on right subtree
+            prettyPrint(ast[2],depth)
+            print( (' '*5 + '|')*depth )
+            print(' '*6*(depth) + '+',end='')
+        # recursive call on left subtree (or only subtree, depending)
+        prettyPrint(ast[1],depth)
+    # base case
     elif not isinstance(ast,list):
         # ast is a literal
-        return ast #?
+        print(ast)
+        return
+"""
+# A much less fussy version of prettyPrint(). Doesn't display links but it's also
+# more consistent, with a much clearer graphical relationship between nodes.
+def prettyPrint(ast,depth=0):
+    if isinstance(ast,list) and len(ast)>=2:
+        print('\t'*depth + '['+ast[0]+']')
 
+        depth = depth + 1
+        prettyPrint(ast[1],depth)
+        if len(ast)>2:
+            prettyPrint(ast[2],depth)
+            if len(ast)>3:
+                depth = depth+1
+                prettyPrint(ast[3],depth)
+
+    elif not isinstance(ast,list):
+        print('\t'*depth + '['+str(ast)+']')
+        print()
+        return
 
 def parseAndReport(tks):
     ast = parseExpn(tks)
@@ -242,7 +365,7 @@ class LexError(Exception):
 
 RESERVED = ['if','then','else',
             'while','do','done',
-            'let','ref','in',
+            'let','ref','in', 'val',
             'begin','end',
             'not','mod',
             'true','false',
@@ -612,6 +735,7 @@ class TokenStream:
 #
 if len(sys.argv) > 1:
     loadAll(sys.argv[1:])
-else:
-    print("Enter an expression to parse: ",end='')
-    parseAndReport(TokenStream(input()))
+
+#else:
+    #print("Enter an expression to parse: ",end='')
+    #parseAndReport(TokenStream(input()))
